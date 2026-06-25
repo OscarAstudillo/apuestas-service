@@ -13,7 +13,12 @@ Prefijo de rutas: /api/apuestas
 """
 import json
 import os
+import time
+import psutil
+from fastapi import status
+
 from contextlib import asynccontextmanager
+
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +30,10 @@ from .simulacion import simular_partido
 
 SELECCIONES = {"local", "empate", "visita"}
 CUOTA_COL = {"local": "cuota_local", "empate": "cuota_empate", "visita": "cuota_visita"}
+
+app = FastAPI()
+INICIO = time.time()
+READY_MAX_MEM_PERCENT = float(os.getenv("READY_MAX_MEM_PERCENT", "90"))
 
 
 @asynccontextmanager
@@ -338,3 +347,24 @@ def reiniciar(usuario: dict = Depends(usuario_actual)):
     apostando cuando ya simuló todos los eventos abiertos. Reabre los clásicos.
     """
     return sembrar_eventos(forzar=True)
+
+
+
+
+@app.get("/livez", status_code=status.HTTP_200_OK)
+def livez():
+    """Liveness: el proceso está vivo."""
+    return {"alive": True, "uptime_segundos": round(time.time() - INICIO, 1)}
+
+@app.get("/readyz", status_code=status.HTTP_200_OK)
+def readyz():
+    """Readiness: verifica conexión a BD y uso de recursos."""
+    # Aquí deberías agregar la lógica real de ping a PostgreSQL
+    # Además, validamos que la memoria no esté saturada
+    memoria = psutil.virtual_memory().percent
+    if memoria > READY_MAX_MEM_PERCENT:
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "memoria_%": memoria}
+        )
+    return {"ready": True, "memoria_%": memoria}
